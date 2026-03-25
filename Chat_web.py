@@ -1,7 +1,9 @@
 import streamlit as st
 import pyrebase
 from streamlit_autorefresh import st_autorefresh
+from datetime import datetime
 
+# --- 1. FIREBASE CONFIG ---
 config = {
     "apiKey": "AIzaSyAAZkbhE679efiT5vZXYb7LzjAkiMCp0Oo",
     "authDomain": "pvchat-frinshipzone.firebaseapp.com",
@@ -15,34 +17,74 @@ config = {
 firebase = pyrebase.initialize_app(config)
 db = firebase.database()
 
-# Har 3 second mein refresh
+GROUP_PASSWORD = "@khul-ja-sim-sim" 
+
+st.set_page_config(page_title="Krishna's Pro Chat", page_icon="🔥")
 st_autorefresh(interval=3000, key="frefresher")
 
-st.title("💬 Krishna's Chat Board")
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
 
-if "my_name" not in st.session_state:
-    st.session_state.my_name = ""
+# --- 2. LOGIN ---
+if not st.session_state.authenticated:
+    st.title("🔐 Private Access")
+    pwd = st.text_input("Password:", type="password")
+    name = st.text_input("Apna Naam:")
+    if st.button("Enter Chat"):
+        if pwd == GROUP_PASSWORD and name:
+            st.session_state.authenticated = True
+            st.session_state.my_name = name
+            st.rerun()
+        else:
+            st.error("Galti hai bhai!")
 
-if not st.session_state.my_name:
-    n = st.text_input("Naam dalo:")
-    if n:
-        st.session_state.my_name = n
-        st.rerun()
+# --- 3. CHAT AREA ---
 else:
-    # --- MESSAGES LOAD KARO ---
+    st.markdown(f"### 💬 Chatting as: {st.session_state.my_name}")
+    
     try:
-        # ".get()" ke saath error handle karne ke liye
         msgs = db.child("messages").get().val()
         if msgs:
             for m_id in list(msgs.keys()):
                 m = msgs[m_id]
-                with st.chat_message("user"):
-                    st.write(f"**{m['user']}**: {m['msg']}")
-    except:
-        st.warning("Database refresh ho raha hai... (Wait 2 sec)")
+                user = m.get('user', 'Unknown')
+                text = m.get('msg', '')
+                time = m.get('time', '')
+                seen_list = m.get('seen_by', {}) # Kis kis ne dekha
 
-    # --- CHAT INPUT ---
+                # Logic: Agar maine nahi dekha, toh mera naam add kar do
+                if st.session_state.my_name not in seen_list:
+                    db.child("messages").child(m_id).child("seen_by").update({st.session_state.my_name: True})
+
+                # Seen users ke naam nikalna
+                seen_names = ", ".join(seen_list.keys()) if seen_list else ""
+
+                # Styling (Me vs Others)
+                if user == st.session_state.my_name:
+                    st.markdown(f"""
+                        <div style='text-align: right; background-color: #DCF8C6; padding: 10px; border-radius: 15px; margin-bottom: 5px; margin-left: 20%; color: black;'>
+                            <b>You</b><br>{text}<br>
+                            <small style='color: gray; font-size: 10px;'>{time} | Seen by: {seen_names}</small>
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                        <div style='text-align: left; background-color: #FFFFFF; padding: 10px; border-radius: 15px; margin-bottom: 5px; margin-right: 20%; color: black; border: 1px solid #ddd;'>
+                            <b style='color: #075E54;'>{user}</b><br>{text}<br>
+                            <small style='color: gray; font-size: 10px;'>{time} | Seen by: {seen_names}</small>
+                        </div>
+                    """, unsafe_allow_html=True)
+    except:
+        st.write("Messages load ho rahe hain...")
+
+    # --- 4. INPUT ---
     prompt = st.chat_input("Message...")
     if prompt:
-        db.child("messages").push({"user": st.session_state.my_name, "msg": prompt})
+        now = datetime.now().strftime("%H:%M")
+        db.child("messages").push({
+            "user": st.session_state.my_name,
+            "msg": prompt,
+            "time": now,
+            "seen_by": {st.session_state.my_name: True} # Bhejne wala toh dekh hi chuka hai
+        })
         st.rerun()
