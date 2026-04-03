@@ -2,8 +2,6 @@ import streamlit as st
 import pyrebase
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
-import base64
-import time
 
 # --- 1. FIREBASE CONFIG ---
 config = {
@@ -24,20 +22,24 @@ GROUP_PASSWORD = "@khul-ja-sim-sim"
 st.set_page_config(page_title="Krishna's Smart Chat", page_icon="🔔")
 st_autorefresh(interval=3000, key="frefresher")
 
-# Notification Sound Function
-def play_notification():
-    # Chota sa beep sound (Base64 format mein)
-    audio_html = """
-        <audio autoplay>
-            <source src="https://www.soundjay.com/buttons/beep-01a.mp3" type="audio/mpeg">
-        </audio>
+# --- CUSTOM JS FOR NOTIFICATION ---
+# Ye script browser ko bolegi ki alert dikhaye
+def notify_user(sender):
+    js = f"""
+    <script>
+    if (window.Notification && Notification.permission === 'granted') {{
+        new Notification('Naya Message!', {{ body: '{sender} ne message bheja hai' }});
+    }} else if (window.Notification && Notification.permission !== 'denied') {{
+        Notification.requestPermission();
+    }}
+    </script>
     """
-    st.markdown(audio_html, unsafe_allow_html=True)
+    st.components.v1.html(js, height=0)
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
-if "last_msg_count" not in st.session_state:
-    st.session_state.last_msg_count = 0
+if "old_msgs" not in st.session_state:
+    st.session_state.old_msgs = []
 
 # --- LOGIN GATE ---
 if not st.session_state.authenticated:
@@ -52,42 +54,29 @@ if not st.session_state.authenticated:
 
 # --- CHAT AREA ---
 else:
-    st.title("💬 Live Chat Board")
+    st.title("💬 Chat Board")
     
-    with st.sidebar:
-        st.header("📸 Snap & Settings")
-        img_file = st.file_uploader("Snap bhejien", type=['jpg', 'png', 'jpeg'])
-        if img_file and st.button("Send Snap"):
-            bytes_data = img_file.getvalue()
-            base_64 = base64.b64encode(bytes_data).decode()
-            db.child("messages").push({
-                "user": st.session_state.my_name,
-                "msg": "📷 [SNAP]",
-                "image": base_64,
-                "time": datetime.now().strftime("%H:%M"),
-                "seen_by": {st.session_state.my_name: True}
-            })
-            st.rerun()
-        if st.button("Logout"):
-            st.session_state.authenticated = False
-            st.rerun()
-
-    # --- MESSAGE LISTENING & NOTIFICATION ---
+    # Message detection logic
     try:
-        msgs_data = db.child("messages").get().val()
-        if msgs_data:
-            current_count = len(msgs_data)
+        all_msgs = db.child("messages").get().val()
+        if all_msgs:
+            msg_ids = list(all_msgs.keys())
             
-            # Agar koi naya message aaya hai (jo maine nahi bheja)
-            if current_count > st.session_state.last_msg_count:
-                last_msg_id = list(msgs_data.keys())[-1]
-                if msgs_data[last_msg_id]['user'] != st.session_state.my_name:
-                    play_notification() # Notification bajao!
-                    st.toast(f"Naya message aaya hai: {msgs_data[last_msg_id]['user']} se!")
-                st.session_state.last_msg_count = current_count
+            # Agar last message id badal gayi hai aur wo maine nahi bheja
+            if "last_id" not in st.session_state:
+                st.session_state.last_id = msg_ids[-1]
+            
+            if msg_ids[-1] != st.session_state.last_id:
+                latest_msg = all_msgs[msg_ids[-1]]
+                if latest_msg['user'] != st.session_state.my_name:
+                    # Notification trigger!
+                    st.toast(f"🔔 {latest_msg['user']}: {latest_msg['msg']}")
+                    notify_user(latest_msg['user'])
+                st.session_state.last_id = msg_ids[-1]
 
-            for m_id in list(msgs_data.keys()):
-                m = msgs_data[m_id]
+            # Display Messages
+            for m_id in msg_ids:
+                m = all_msgs[m_id]
                 user, text, time_str = m.get('user'), m.get('msg'), m.get('time')
                 seen_list = m.get('seen_by', {})
 
@@ -103,10 +92,6 @@ else:
                         <small style='color: gray;'>{time_str} | Seen by: {', '.join(seen_list.keys())}</small>
                     </div>
                 """, unsafe_allow_html=True)
-                
-                if m.get('image'):
-                    if st.button(f"👁️ View Snap", key=m_id):
-                        st.image(f"data:image/png;base64,{m['image']}")
     except:
         pass
 
