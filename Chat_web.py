@@ -19,7 +19,7 @@ config = {
 firebase = pyrebase.initialize_app(config)
 db = firebase.database()
 
-GROUP_PASSWORD = "BhaiKiSarkar123" 
+GROUP_PASSWORD = "@khul-ja-sim-sim" 
 
 st.set_page_config(page_title="Krishna's Smart Chat", page_icon="🔔")
 st_autorefresh(interval=3000, key="frefresher")
